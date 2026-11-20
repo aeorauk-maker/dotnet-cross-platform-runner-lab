@@ -1,0 +1,31 @@
+name: ESC11 public Identity clock check
+
+on:
+  push:
+    branches:
+      - esc11-identity-clock-20261120
+    paths:
+      - esc11-identity-clock/**
+      - .github/workflows/esc11-identity-clock.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 11.0.100
+      - name: Record official runtime
+        shell: pwsh
+        run: |
+          dotnet --version
+          dotnet --list-runtimes
+      - name: Run public issue reproduction
+        shell: pwsh
+        run: dotnet run --project esc11-identity-clock/IdentityPublicIssue.csproj --configuration Release --no-launch-profile
