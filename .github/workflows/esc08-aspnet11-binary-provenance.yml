@@ -1,0 +1,28 @@
+name: Esc08 ASP.NET 11 binary provenance
+on:
+  push:
+    branches: [esc08-asparams052-binaries-20261120]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-binaries:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.100'
+      - name: Hash official ASP.NET Core assemblies
+        shell: pwsh
+        run: |
+          dotnet --version
+          dotnet --list-runtimes
+          $dotnetRoot = Split-Path (Get-Command dotnet).Source
+          $aspnetRoot = Join-Path $dotnetRoot 'shared/Microsoft.AspNetCore.App/11.0.0'
+          foreach ($name in @('Microsoft.AspNetCore.Routing.dll', 'Microsoft.Extensions.Validation.dll', 'Microsoft.AspNetCore.Http.Extensions.dll')) {
+            $path = Join-Path $aspnetRoot $name
+            if (-not (Test-Path $path)) { throw "Missing official binary: $name" }
+            $hash = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
+            Write-Output "$name sha256=$hash"
+          }
