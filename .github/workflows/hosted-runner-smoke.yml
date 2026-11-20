@@ -1,0 +1,20 @@
+name: Hosted runner smoke test
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Confirm runner identity
+        run: echo "Runner OS ${{ runner.os }} architecture ${{ runner.arch }}"
