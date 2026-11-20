@@ -1,0 +1,13 @@
+name: ESC03 Windows smoke
+on:
+  push:
+    branches: [esc03-ck02-20261120]
+jobs:
+  startup:
+    runs-on: windows-latest
+    steps:
+      - name: Verify Windows runner startup
+        shell: pwsh
+        run: |
+          Write-Output 'ESC03 Windows runner started'
+          dotnet --info
