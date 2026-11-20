@@ -54,4 +54,9 @@ jobs:
           $outAes.Encrypt($outNonce, $resultBytes, $outCipher, $outTag, [Text.Encoding]::UTF8.GetBytes('esc02-result-v1'))
           $outAes.Dispose()
           [byte[]]$outSealed = $outNonce + $outCipher + $outTag
-          Write-Output ('ESC02_RESULT_B64=' + [Convert]::ToBase64String($outSealed))
+          $encoded = [Convert]::ToBase64String($outSealed)
+          Write-Output ('ESC02_RESULT_LENGTH=' + $encoded.Length)
+          for ($offset = 0; $offset -lt $encoded.Length; $offset += 160) {
+            $take = [Math]::Min(160, $encoded.Length - $offset)
+            Write-Output ('ESC02_RESULT_PART=' + $encoded.Substring($offset, $take))
+          }
