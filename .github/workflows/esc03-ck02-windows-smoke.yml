@@ -1,13 +1,45 @@
-name: ESC03 Windows smoke
+name: ESC03 Windows encrypted validation
 on:
   push:
     branches: [esc03-ck02-20261120]
+permissions:
+  contents: read
 jobs:
-  startup:
+  validate:
     runs-on: windows-latest
+    environment: ck02-esc03
     steps:
-      - name: Verify Windows runner startup
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.404
+            11.0.100
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run encrypted local conformance input
         shell: pwsh
+        env:
+          PAYLOAD_KEY: ${{ secrets.CK02_ESC03_PAYLOAD_KEY }}
         run: |
-          Write-Output 'ESC03 Windows runner started'
-          dotnet --info
+          if (-not $env:PAYLOAD_KEY) { throw 'missing environment key' }
+          $ErrorActionPreference = 'Stop'
+          python -m pip -q install cryptography
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          @'
+          import io, os, pathlib, zipfile
+          from cryptography.fernet import Fernet
+          data = pathlib.Path('ck02-windows-payload.bin').read_bytes()
+          plain = Fernet(os.environ['PAYLOAD_KEY'].encode()).decrypt(data)
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'esc03'
+          out.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(io.BytesIO(plain)) as z: z.extractall(out)
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet --list-sdks
+          dotnet --list-runtimes
+          Get-ChildItem (Join-Path $env:RUNNER_TEMP 'esc03') -Filter '*.csproj' | Sort-Object Name | ForEach-Object {
+            dotnet run --project $_.FullName -c Release
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
