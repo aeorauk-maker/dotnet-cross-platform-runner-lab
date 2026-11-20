@@ -1,0 +1,49 @@
+name: esc06-cv03-encrypted-windows
+on:
+  push:
+    branches: [esc06-cv03-20261120]
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: windows-latest
+    env:
+      ESC06_KEY: ${{ secrets.ESC06_CV03_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 11.0.100
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Execute encrypted owned fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:ESC06_KEY)) { throw 'Fixture key unavailable' }
+          $key = [Convert]::FromHexString($env:ESC06_KEY)
+          $blob = [Convert]::FromBase64String((Get-Content 'cv03-payload.b64' -Raw).Trim())
+          $nonce = [byte[]]$blob[0..11]
+          $tag = [byte[]]$blob[12..27]
+          $cipher = [byte[]]$blob[28..($blob.Length - 1)]
+          $plain = [byte[]]::new($cipher.Length)
+          $aes = [System.Security.Cryptography.AesGcm]::new($key, 16)
+          $aes.Decrypt($nonce, $cipher, $tag, $plain)
+          [IO.File]::WriteAllBytes('fixture.zip', $plain)
+          Expand-Archive 'fixture.zip' -DestinationPath 'fixture' -Force
+          Push-Location 'fixture'
+          try {
+            pwsh -NoProfile -File './run_windows.ps1'
+            if ($LASTEXITCODE -ne 0) { throw 'Fixture execution failed' }
+            $report = [Text.Encoding]::UTF8.GetBytes((
+              (Get-Content 'result1.json' -Raw) + [Environment]::NewLine + (Get-Content 'result2.json' -Raw)))
+            $reportNonce = [byte[]]::new(12)
+            [System.Security.Cryptography.RandomNumberGenerator]::Fill($reportNonce)
+            $reportCipher = [byte[]]::new($report.Length)
+            $reportTag = [byte[]]::new(16)
+            $aes.Encrypt($reportNonce, $report, $reportCipher, $reportTag)
+            $sealed = [byte[]]($reportNonce + $reportTag + $reportCipher)
+            Write-Output ('ESC06_RESULT_B64=' + [Convert]::ToBase64String($sealed))
+          } finally {
+            Pop-Location
+          }
