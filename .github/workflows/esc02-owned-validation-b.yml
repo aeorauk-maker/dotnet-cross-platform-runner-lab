@@ -1,0 +1,72 @@
+name: ESC02 sealed owned validation B
+on:
+  push:
+    branches:
+      - esc02-proxy-20261120
+    paths:
+      - .github/workflows/esc02-owned-validation-b.yml
+permissions:
+  contents: read
+jobs:
+  validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.100'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prepare owned local service
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq squid
+          sudo systemctl stop squid.service || true
+          printf '127.0.0.1 example.invalid\n' | sudo tee -a /etc/hosts >/dev/null
+      - name: Run sealed owned fixture
+        shell: pwsh
+        env:
+          ESC02_KEY: ${{ secrets.ESC02_PROXY_LAB_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:ESC02_KEY) { throw 'Fixture key unavailable' }
+          [byte[]]$key = [Convert]::FromBase64String($env:ESC02_KEY)
+          [byte[]]$sealed = [Convert]::FromBase64String('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')
+          [byte[]]$nonce = $sealed[0..11]
+          [byte[]]$cipher = $sealed[12..($sealed.Length - 17)]
+          [byte[]]$tag = $sealed[($sealed.Length - 16)..($sealed.Length - 1)]
+          [byte[]]$plain = New-Object byte[] $cipher.Length
+          $aes = [Security.Cryptography.AesGcm]::new($key, 16)
+          $aes.Decrypt($nonce, $cipher, $tag, $plain, [Text.Encoding]::UTF8.GetBytes('esc02-yarp-squid-v1'))
+          $aes.Dispose()
+          [IO.File]::WriteAllBytes('lab.zip', $plain)
+          Expand-Archive -Path lab.zip -DestinationPath . -Force
+          /usr/bin/curl -4 -fLsS -o payload/yarp.reverseproxy.2.3.0.nupkg https://api.nuget.org/v3-flatcontainer/yarp.reverseproxy/2.3.0/yarp.reverseproxy.2.3.0.nupkg
+          /usr/bin/curl -4 -fLsS -o payload/system.io.hashing.8.0.0.nupkg https://api.nuget.org/v3-flatcontainer/system.io.hashing/8.0.0/system.io.hashing.8.0.0.nupkg
+          if ((Get-FileHash 'payload/yarp.reverseproxy.2.3.0.nupkg' -Algorithm SHA256).Hash -ne 'FF12EF5F9C46C3F3E815575A45B7598C68043B9EB101A9AAB18ED3BD8C025A24') { throw 'Package hash mismatch' }
+          if ((Get-FileHash 'payload/system.io.hashing.8.0.0.nupkg' -Algorithm SHA256).Hash -ne 'B33386B744CD068E9D11D0B781FE87F9EF585B7370D30A1AE949C218618AE5C1') { throw 'Dependency hash mismatch' }
+          dotnet restore payload/YarpBenefit.csproj --source payload -v:q | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Restore failed' }
+          dotnet build payload/YarpBenefit.csproj --no-restore -v:q | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          $env:ESC02_DOTNET = (Get-Command dotnet).Source
+          $result = python payload/run_benefit_squid.py 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) { throw 'Fixture failed' }
+          [byte[]]$resultBytes = [Text.Encoding]::UTF8.GetBytes($result)
+          [byte[]]$outNonce = New-Object byte[] 12
+          [Security.Cryptography.RandomNumberGenerator]::Fill($outNonce)
+          [byte[]]$outCipher = New-Object byte[] $resultBytes.Length
+          [byte[]]$outTag = New-Object byte[] 16
+          $outAes = [Security.Cryptography.AesGcm]::new($key, 16)
+          $outAes.Encrypt($outNonce, $resultBytes, $outCipher, $outTag, [Text.Encoding]::UTF8.GetBytes('esc02-yarp-squid-result-v1'))
+          $outAes.Dispose()
+          [byte[]]$outSealed = $outNonce + $outCipher + $outTag
+          $encoded = [Convert]::ToBase64String($outSealed)
+          Write-Output ('ESC02_SQUID_LENGTH=' + $encoded.Length)
+          for ($offset = 0; $offset -lt $encoded.Length; $offset += 160) {
+            $take = [Math]::Min(160, $encoded.Length - $offset)
+            Write-Output ('ESC02_SQUID_PART=' + $encoded.Substring($offset, $take))
+          }
