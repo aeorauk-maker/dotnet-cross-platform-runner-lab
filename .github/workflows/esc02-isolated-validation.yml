@@ -1,0 +1,57 @@
+name: ESC02 isolated Windows validation
+on:
+  push:
+    branches:
+      - esc02-proxy-20261120
+    paths:
+      - .github/workflows/esc02-isolated-validation.yml
+permissions:
+  contents: read
+jobs:
+  validation:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.100'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run sealed owned fixture
+        shell: pwsh
+        env:
+          ESC02_KEY: ${{ secrets.ESC02_PROXY_LAB_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:ESC02_KEY) { throw 'Fixture key unavailable' }
+          [byte[]]$key = [Convert]::FromBase64String($env:ESC02_KEY)
+          [byte[]]$sealed = [Convert]::FromBase64String('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')
+          [byte[]]$nonce = $sealed[0..11]
+          [byte[]]$cipher = $sealed[12..($sealed.Length - 17)]
+          [byte[]]$tag = $sealed[($sealed.Length - 16)..($sealed.Length - 1)]
+          [byte[]]$plain = New-Object byte[] $cipher.Length
+          $aes = [Security.Cryptography.AesGcm]::new($key, 16)
+          $aes.Decrypt($nonce, $cipher, $tag, $plain, [Text.Encoding]::UTF8.GetBytes('esc02-owned-lab-v1'))
+          $aes.Dispose()
+          [IO.File]::WriteAllBytes('lab.zip', $plain)
+          Expand-Archive -Path lab.zip -DestinationPath . -Force
+          $project = Get-ChildItem payload -Filter '*.csproj' | Select-Object -First 1
+          if (-not $project) { throw 'Fixture project missing' }
+          dotnet build $project.FullName -v:q | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Fixture build failed' }
+          $runner = Get-ChildItem payload -Filter '*.py' | Select-Object -First 1
+          if (-not $runner) { throw 'Fixture runner missing' }
+          $result = python $runner.FullName 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) { throw 'Fixture run failed' }
+          [byte[]]$resultBytes = [Text.Encoding]::UTF8.GetBytes($result)
+          [byte[]]$outNonce = New-Object byte[] 12
+          [Security.Cryptography.RandomNumberGenerator]::Fill($outNonce)
+          [byte[]]$outCipher = New-Object byte[] $resultBytes.Length
+          [byte[]]$outTag = New-Object byte[] 16
+          $outAes = [Security.Cryptography.AesGcm]::new($key, 16)
+          $outAes.Encrypt($outNonce, $resultBytes, $outCipher, $outTag, [Text.Encoding]::UTF8.GetBytes('esc02-result-v1'))
+          $outAes.Dispose()
+          [byte[]]$outSealed = $outNonce + $outCipher + $outTag
+          Write-Output ('ESC02_RESULT_B64=' + [Convert]::ToBase64String($outSealed))
