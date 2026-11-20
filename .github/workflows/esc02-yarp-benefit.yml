@@ -1,0 +1,65 @@
+name: ESC02 sealed YARP benefit validation
+on:
+  push:
+    branches:
+      - esc02-proxy-20261120
+    paths:
+      - .github/workflows/esc02-yarp-benefit.yml
+permissions:
+  contents: read
+jobs:
+  benefit:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.100'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run sealed owned consumer fixture
+        shell: pwsh
+        env:
+          ESC02_KEY: ${{ secrets.ESC02_PROXY_LAB_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:ESC02_KEY) { throw 'Fixture key unavailable' }
+          [byte[]]$key = [Convert]::FromBase64String($env:ESC02_KEY)
+          [byte[]]$sealed = [Convert]::FromBase64String('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')
+          [byte[]]$nonce = $sealed[0..11]
+          [byte[]]$cipher = $sealed[12..($sealed.Length - 17)]
+          [byte[]]$tag = $sealed[($sealed.Length - 16)..($sealed.Length - 1)]
+          [byte[]]$plain = New-Object byte[] $cipher.Length
+          $aes = [Security.Cryptography.AesGcm]::new($key, 16)
+          $aes.Decrypt($nonce, $cipher, $tag, $plain, [Text.Encoding]::UTF8.GetBytes('esc02-yarp-v1'))
+          $aes.Dispose()
+          [IO.File]::WriteAllBytes('lab.zip', $plain)
+          Expand-Archive -Path lab.zip -DestinationPath . -Force
+          Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/yarp.reverseproxy/2.3.0/yarp.reverseproxy.2.3.0.nupkg' -OutFile 'payload/yarp.reverseproxy.2.3.0.nupkg'
+          Invoke-WebRequest 'https://api.nuget.org/v3-flatcontainer/system.io.hashing/8.0.0/system.io.hashing.8.0.0.nupkg' -OutFile 'payload/system.io.hashing.8.0.0.nupkg'
+          if ((Get-FileHash 'payload/yarp.reverseproxy.2.3.0.nupkg' -Algorithm SHA256).Hash -ne 'FF12EF5F9C46C3F3E815575A45B7598C68043B9EB101A9AAB18ED3BD8C025A24') { throw 'Package hash mismatch' }
+          if ((Get-FileHash 'payload/system.io.hashing.8.0.0.nupkg' -Algorithm SHA256).Hash -ne 'B33386B744CD068E9D11D0B781FE87F9EF585B7370D30A1AE949C218618AE5C1') { throw 'Dependency hash mismatch' }
+          dotnet restore payload/YarpBenefit.csproj --source payload -v:q | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Restore failed' }
+          dotnet build payload/YarpBenefit.csproj --no-restore -v:q | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
+          $env:ESC02_DOTNET = (Get-Command dotnet).Source
+          $result = python payload/run_benefit.py 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0) { throw 'Fixture failed' }
+          [byte[]]$resultBytes = [Text.Encoding]::UTF8.GetBytes($result)
+          [byte[]]$outNonce = New-Object byte[] 12
+          [Security.Cryptography.RandomNumberGenerator]::Fill($outNonce)
+          [byte[]]$outCipher = New-Object byte[] $resultBytes.Length
+          [byte[]]$outTag = New-Object byte[] 16
+          $outAes = [Security.Cryptography.AesGcm]::new($key, 16)
+          $outAes.Encrypt($outNonce, $resultBytes, $outCipher, $outTag, [Text.Encoding]::UTF8.GetBytes('esc02-yarp-result-v1'))
+          $outAes.Dispose()
+          [byte[]]$outSealed = $outNonce + $outCipher + $outTag
+          $encoded = [Convert]::ToBase64String($outSealed)
+          Write-Output ('ESC02_YARP_LENGTH=' + $encoded.Length)
+          for ($offset = 0; $offset -lt $encoded.Length; $offset += 160) {
+            $take = [Math]::Min(160, $encoded.Length - $offset)
+            Write-Output ('ESC02_YARP_PART=' + $encoded.Substring($offset, $take))
+          }
