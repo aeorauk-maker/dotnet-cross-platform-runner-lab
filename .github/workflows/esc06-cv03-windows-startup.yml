@@ -1,0 +1,14 @@
+name: esc06-cv03-windows-startup
+on:
+  push:
+    branches: [esc06-cv03-20261120]
+  workflow_dispatch:
+jobs:
+  startup:
+    runs-on: windows-latest
+    steps:
+      - name: Report official installed runtimes
+        shell: pwsh
+        run: |
+          Write-Output 'ESC06_CV03_WINDOWS_STARTUP'
+          dotnet --list-runtimes
