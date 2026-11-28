@@ -21,6 +21,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $env:PYTHONUTF8 = '1'
           $env:C4_RUNS_ROOT = Join-Path $env:RUNNER_TEMP 'c4-l050'
           New-Item -ItemType Directory -Force -Path $env:C4_RUNS_ROOT | Out-Null
           $scriptPath = Join-Path $env:RUNNER_TEMP 'c4-l050-matrix.py'
