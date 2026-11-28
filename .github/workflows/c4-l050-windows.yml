@@ -1,0 +1,250 @@
+name: C4 L050 Windows cache discriminator
+on:
+  push:
+    branches:
+      - c4-l050-windows-20261127
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.100'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run inert Unicode cache matrix
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:C4_RUNS_ROOT = Join-Path $env:RUNNER_TEMP 'c4-l050'
+          New-Item -ItemType Directory -Force -Path $env:C4_RUNS_ROOT | Out-Null
+          $scriptPath = Join-Path $env:RUNNER_TEMP 'c4-l050-matrix.py'
+          $py = @'
+          #!/usr/bin/env python3
+          """Owned C4-L050 Windows matrix. Inert fixtures are embedded by workflow generator."""
+          
+          import base64
+          import datetime
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import platform
+          import shutil
+          import subprocess
+          import sys
+          import uuid
+          
+          HERE = Path(__file__).resolve().parent
+          RUNS_ROOT = Path(os.environ.get("C4_RUNS_ROOT", str(HERE / "runs"))).resolve()
+          DOTNET = Path(shutil.which("dotnet") or "dotnet")
+          SDK_VERSION = os.environ.get("C4_SDK_VERSION", "11.0.100")
+          TFM = os.environ.get("C4_TFM", "net11.0")
+          EXPECTED = {
+              "trusted": "8898fcd9f94c8935738fd8bd7e8f355f118fd77623c074a3e8743599536d23d4",
+              "lower": "10cf727aa62b62fe3f0ae6eeaed2aa7d97ea03ce1a4caec06fe47b7d4736fa59",
+          }
+          
+          
+          def digest(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+          
+          
+          def make_project(path, package_id):
+              path.mkdir(parents=True)
+              (path / "project.csproj").write_text(
+                  f'<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>{TFM}</TargetFramework></PropertyGroup>'
+                  f'<ItemGroup><PackageReference Include="{package_id}" Version="1.0.0" /></ItemGroup></Project>\n'
+              )
+          
+          
+          def config(path, trusted, lower):
+              path.write_text(
+                  '<?xml version="1.0" encoding="utf-8"?><configuration>'
+                  '<packageSources><clear/>'
+                  f'<add key="trusted" value="{trusted}"/><add key="lower" value="{lower}"/>'
+                  '</packageSources><packageSourceMapping>'
+                  '<packageSource key="trusted"><package pattern="Company.Σ"/></packageSource>'
+                  '<packageSource key="lower"><package pattern="*"/></packageSource>'
+                  '</packageSourceMapping></configuration>\n'
+              )
+          
+          
+          def main():
+              stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+              run_dir = RUNS_ROOT / f"build-target-{stamp}-{uuid.uuid4().hex[:6]}"
+              run_dir.mkdir(parents=True)
+              probe_dir = run_dir / "path-probe"
+              probe_dir.mkdir()
+              probe_a = probe_dir / "σ"
+              probe_b = probe_dir / "ς"
+              probe_a.write_text("ONLY-SIGMA")
+              path_alias = probe_b.exists() and os.path.samefile(probe_a, probe_b)
+              (run_dir / "global.json").write_text(
+                  json.dumps({"sdk": {"version": SDK_VERSION, "rollForward": "disable"}}) + "\n")
+              feeds = run_dir / "feeds"
+              trusted = feeds / "trusted"
+              lower = feeds / "lower"
+              lower_exact = feeds / "lower-exact"
+              empty = feeds / "empty-trusted"
+              for directory in (trusted, lower, lower_exact, empty):
+                  directory.mkdir(parents=True)
+              tp = trusted / "Company.Σ.1.0.0.nupkg"
+              lp = lower / "Company.ς.1.0.0.nupkg"
+              tp.write_bytes(base64.b64decode("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"))
+              lp.write_bytes(base64.b64decode("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"))
+              # Keep exact and variant in distinct feed directories: the local default
+              # APFS volume can alias sigma/final-sigma filenames in one directory.
+              shutil.copyfile(tp, lower_exact / tp.name)
+              assert digest(tp) == EXPECTED["trusted"]
+              assert digest(lp) == EXPECTED["lower"]
+              cfg = run_dir / "NuGet.Config"
+              denied_cfg = run_dir / "Denied.NuGet.Config"
+              exact_denied_cfg = run_dir / "ExactDenied.NuGet.Config"
+              config(cfg, trusted, lower)
+              config(denied_cfg, empty, lower)
+              config(exact_denied_cfg, empty, lower_exact)
+              victim = run_dir / "victim"
+              seed = run_dir / "seed"
+              make_project(victim, "Company.Σ")
+              make_project(seed, "Company.ς")
+              env = os.environ.copy()
+              env.update({
+                  "DOTNET_CLI_HOME": str(run_dir / "cli-home"),
+                  "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+                  "DOTNET_SKIP_FIRST_TIME_EXPERIENCE": "1",
+                  "NUGET_HTTP_CACHE_PATH": str(run_dir / "http-cache"),
+                  "MSBUILDDISABLENODEREUSE": "1",
+                  "DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER": "1",
+              })
+              logs = run_dir / "logs"
+              logs.mkdir()
+              cases = {}
+          
+              def invoke(case, action, args, packages):
+                  command = [str(DOTNET), *args]
+                  result = subprocess.run(command, cwd=run_dir, env=env, text=True,
+                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                          timeout=120)
+                  log = logs / f"{case}-{action}.txt"
+                  log.write_text("COMMAND=" + " ".join(command) + "\nEXIT=" + str(result.returncode) + "\n" + result.stdout)
+                  return {"exit": result.returncode, "log": str(log.relative_to(run_dir)), "sha256": digest(log)}
+          
+              def reset_victim_outputs():
+                  for name in ("bin", "obj"):
+                      path = victim / name
+                      if path.exists():
+                          shutil.rmtree(path)
+                  marker = victim / "L050-marker.txt"
+                  if marker.exists():
+                      marker.unlink()
+          
+              def restore(case, project, config_path, packages):
+                  return invoke(case, "restore", ["restore", str(project / "project.csproj"),
+                      "--configfile", str(config_path), "--packages", str(packages), "-v", "normal"], packages)
+          
+              def victim_case(name, config_path, packages, build=True):
+                  reset_victim_outputs()
+                  row = {"restore": restore(name, victim, config_path, packages)}
+                  if row["restore"]["exit"] == 0 and build:
+                      assets = json.loads((victim / "obj" / "project.assets.json").read_text())
+                      row["libraries"] = sorted(assets["libraries"])
+                      generated = victim / "obj" / "project.csproj.nuget.g.targets"
+                      row["generated_targets"] = generated.read_text() if generated.exists() else None
+                      row["build"] = invoke(name, "build", ["build", str(victim / "project.csproj"),
+                          "--no-restore", "-p:UseSharedCompilation=false", "-m:1", "-v", "normal"], packages)
+                      marker = victim / "L050-marker.txt"
+                      row["marker"] = marker.read_text().strip() if marker.exists() else None
+                  else:
+                      row["marker"] = None
+                  cases[name] = row
+          
+              clean = run_dir / "cache-clean"
+              denied = run_dir / "cache-denied"
+              shared = run_dir / "cache-shared"
+              reverse = run_dir / "cache-reverse"
+              exact_denied = run_dir / "cache-exact-denied"
+              for path in (clean, denied, shared, reverse, exact_denied):
+                  path.mkdir()
+          
+              victim_case("clean-valid", cfg, clean)
+              victim_case("clean-denied", denied_cfg, denied)
+              cases["variant-seed"] = {"restore": restore("variant-seed", seed, cfg, shared),
+                                        "seed_marker": (seed / "L050-marker.txt").exists()}
+              victim_case("seeded-victim", cfg, shared)
+              victim_case("isolated-victim", cfg, denied)
+              victim_case("reverse-victim-first", cfg, reverse)
+              cases["reverse-seed"] = {"restore": restore("reverse-seed", seed, cfg, reverse)}
+              victim_case("reverse-victim-after", cfg, reverse)
+              victim_case("exact-id-lower-denied", exact_denied_cfg, exact_denied, build=False)
+          
+              cache_metadata = sorted(shared.glob("company.*/1.0.0/.nupkg.metadata"))
+              sdk_info = subprocess.check_output([str(DOTNET), "--info"], cwd=run_dir,
+                                                 env=env, text=True)
+              sdk_base = Path(next(line.split(":", 1)[1].strip()
+                                   for line in sdk_info.splitlines()
+                                   if line.strip().startswith("Base Path:")))
+              evidence = {
+                  "run_dir": str(run_dir),
+                  "utc": stamp,
+                  "dotnet": str(DOTNET),
+                  "dotnet_version": subprocess.check_output([str(DOTNET), "--version"], cwd=run_dir, env=env, text=True).strip(),
+                  "platform": platform.platform(),
+                  "github_context": {name: os.environ.get(name) for name in
+                                     ("GITHUB_REPOSITORY", "GITHUB_SHA", "GITHUB_RUN_ID",
+                                      "GITHUB_JOB", "RUNNER_OS", "RUNNER_NAME")},
+                  "path_probe": {"sigma_final_sigma_alias": path_alias,
+                                 "sigma_read": probe_a.read_text(),
+                                 "final_sigma_exists": probe_b.exists()},
+                  "target_framework": TFM,
+                  "sdk_base_path": str(sdk_base),
+                  "nuget_dll_sha256": {name: digest(sdk_base / name)
+                                        for name in ("NuGet.Commands.dll", "NuGet.Packaging.dll", "NuGet.Configuration.dll", "NuGet.Protocol.dll")},
+                  "package_sha256": {"trusted": digest(tp), "lower": digest(lp)},
+                  "project_sha256": {"victim": digest(victim / "project.csproj"), "seed": digest(seed / "project.csproj")},
+                  "config_sha256": {"normal": digest(cfg), "denied": digest(denied_cfg),
+                                    "exact_denied": digest(exact_denied_cfg)},
+                  "shared_cache_metadata": {str(p.relative_to(shared)): json.loads(p.read_text()) for p in cache_metadata},
+                  "cases": cases,
+              }
+              result_file = run_dir / "result.json"
+              result_file.write_text(json.dumps(evidence, indent=2, ensure_ascii=False) + "\n")
+              summary = {key: {"restore": value["restore"]["exit"],
+                               "build": value.get("build", {}).get("exit"),
+                               "marker": value.get("marker"),
+                               "libraries": value.get("libraries")}
+                         for key, value in cases.items() if "restore" in value}
+              print(json.dumps({"result": str(result_file), "sha256": digest(result_file),
+                                "summary": summary}, indent=2, ensure_ascii=False))
+              assert cases["clean-valid"]["marker"] == "TRUSTED-FEED"
+              assert cases["clean-denied"]["restore"]["exit"] != 0
+              assert cases["variant-seed"]["restore"]["exit"] == 0
+              assert not cases["variant-seed"]["seed_marker"]
+              assert cases["isolated-victim"]["marker"] == "TRUSTED-FEED"
+              assert cases["reverse-victim-after"]["marker"] == "TRUSTED-FEED"
+              assert cases["exact-id-lower-denied"]["restore"]["exit"] != 0
+              return 0
+          
+          
+          if __name__ == "__main__":
+              try:
+                  sys.exit(main())
+              except Exception as error:
+                  print(f"MATRIX_SETUP_OR_ASSERTION_FAILURE: {error}", file=sys.stderr)
+                  raise
+          '@
+          Set-Content -Path $scriptPath -Value $py -Encoding utf8
+          python $scriptPath | Tee-Object -FilePath (Join-Path $env:C4_RUNS_ROOT 'stdout.txt')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Preserve inert logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c4-l050-windows-inert-matrix
+          path: ${{ runner.temp }}/c4-l050/**
+          if-no-files-found: warn

@@ -1,0 +1,235 @@
+name: C4 L050 Windows SDK baseline discriminator
+on:
+  push:
+    branches:
+      - c4-l050-windows-20261127
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '11.0.100'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run inert SDK baseline matrix
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:C4_RUNS_ROOT = Join-Path $env:RUNNER_TEMP 'c4-l050-api'
+          New-Item -ItemType Directory -Force -Path $env:C4_RUNS_ROOT | Out-Null
+          $scriptPath = Join-Path $env:RUNNER_TEMP 'c4-l050-api.py'
+          $py = @'
+          #!/usr/bin/env python3
+          """C4-L050 Windows SDK API-compatibility discriminator, inert owned packages."""
+
+          import base64
+          import datetime
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import platform
+          import shutil
+          import subprocess
+          import sys
+          import uuid
+
+          TRUSTED_B64 = "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"
+          LOWER_B64 = "UEsDBBQAAAAIAM2ge13+riUrCAEAANkBAAALAAAAX3JlbHMvLnJlbHOUkUtqwzAURedZhdA8epLT1G6JE+q0gU5DNiDkZ1vU+qAnh2TaDXZLhZJCQim0CziHe7irzcmN7IiJbPA1V0Jyht6E1vq+5lPu5hXfrGerPY462+BpsJHYyY2eaj7kHB8ByAzoNIkQ0Z/c2IXkdCYRUg9RmzfdIxRS3kO6dvD1jLEbLTucI/6QOmtSoNBlYYK7+KzvoZBKgizBaW87pMzZQacec81hG1zU/iw+3oWfKKLh7LWt+V7Jl7tSqadd0RSqqracwR9H/KsMHGbd6qzBhITzmELElC3S1cRvmjAdrcHfGfBTj1lEcq2Jl45mUS0rVZbVolk+P+zkV8cKbi5afwIAAP//AwBQSwMEFAAACAgAzaB7XU0QHdYCAQAAmgEAABEAAABDb21wYW55Ls+CLm51c3BlY1yQTU7DMBCF9z2F5T2epAuEkJMuilhzBcueulZrj2VPINlyLRYcgaNwBVSStIjlvHnf/Lzvj0+9G+NZvGKpgVInW9VIgcmSC8l3cuDD3YPc9RudjT0Zj2KM51Q7eWTOjwDVHjGaqmKwhSodWFmKMHtD8rBt2i0095CGmtGqsTrZb4TQEdk4w+ZSCKGD6/cUs0mT+nrXENyiL2f1rWpUo2Et56YZ+EilXsk9JS7Gsoa1M/scVltC5gv5snzxdNM0/DXMSMFMNTCVSfCUsZM+sBRwHZgxOUw24LJDCO0LDVmwKR75uZiIb1ROnUzI7W+mKwz/aQ23MPQSHfY/AAAA//8DAFBLAwQUAAAACADMoHtdsdX1E+4FAAAAEAAAIAAAAGxpYi9uZXQxMS4wL0NvbXBhbnkuQ29udHJhY3QuZGxs7ZZRbBxHGcd/43OujtO4Nm2qVIh0UzcpULx3ZycuoZD4fGenZ+yz8V3ctDw4e3vjyzZ7u6fZvSR+KaWo8IRUqaVRH3iCCnjLA0JtBQKJSkiVihASUh6QygMSQkKCByQQDwTN7J599gVKy0N56He338588833/b9vZna+ladfJAMMA7dvw+skNMd703PA2INvjvHDg+8cf10sv3O8ftmLrI4KW8ppW64TBGFsNaSluoHlBVZ5tWa1w6a0Dx8efTi1sbYAyyLDX5+68t2e3d/xkHVI5GEEyCayN08C1g6wcdMeSnBrGu4HNZQ0M1x6Qavq/+5752VInoTVNGBfJ2I/XYK7gaMnoM77ICuB36MRC57o69uxvB4DP9Px6VhGdnH3mbhkq0i5pNjm0kBH9+rNwZytpB+6CVaN2dgaG9Cb3w/zVZ1XEmxDHKBuwVvDIPhglP00zNeW5kVqQeO5esrO2zP5mcIZLTmAr+MRMPks3NJqQzBZi5UXtCKtcSuThDl5ocZvM8l6TZ6/UCkDf8rALd2f98NG6nMIxPn74KDu/EPMcH+C/3CaBt0+lD66nSDzRPLO8i43RZaC0Pw43xb38Cuh5cusiixHxQsiy/fRXBr+vOG3DT9t+C+Mhb+IZ43JxK7OwFfFOH8QfxOnTW9NrzOvMMoxBAe5IQQT3BBZHuCGGOVT3BDjFAw/Y3jR8IrhXzL8KcMdM/cRvswvsTnEQ9jcy6PYfJwlbCapYfMoL2Ezww+weZwfYVPi59h80chrvMTwc/tX+l2R5KlHR/jYbufzK2Gz68uzrEvfuS6b1LajWLbt9W4Qe21JWTa6rZbT8GUxjpXX6MaSYhTJdsPfrntxv7juqJaMF5XTltdCdWVQf9Hz5YZUkRcGg4OVYCtUbSf2wsDx/61WKQy2vFZXGb3d4XW5VXO2ZLy93vVltCsvhe2O5xtlE59pRYNm11TY7Lrxnfy1O06w3ecpyYuRx17D8724b3Rv8uw0DC9oGSROsG2XwiBWjhvbTd9P1XdmyS1fuhohthuHqicve04rCKPYc6P9DpL4pKpJddVzZZQulxe0VsKmjAa8stp4RrpxT55sgTfezpbeeuXs0mvPL1z42tdfjRm2hBjJWIgDlhATE7o7NnLz3OZXJn4z+rkMiBGRfgiP6TNQH7r/SeV0qmGwcN2VHR1A/bIKr0VaL/n+nRM8YFcX6qVQyWKn85k0MV+4WijYeUF97L6dbVP2oo7vbFedtjyop1ha5YhgfCAW7hbctS596UQy6RTsvP7BqOCA6cCI6N/8T07/8W3EypqG9Wv9zToB/l274/rk3As8Apw9CWf7P/j77hlN67Vy7ROP569l1YPn3zixNPrixZf/rm3kLkRSRTkviKXvey0ZuDJXDt1uWwZxlCuFTXk9N52fnp0qFKamH8stVqrlSvX85kKtVFwu1iur1c1TZzb7FJQTXJkqzOZ0hnJOx5tyzQacUt0gynU8P4yntHahMP1YfTqfn83PPD3VLJx2Z2XOD69JlQsbz+TSXOUCGeuk5gb2ZKfZoPZEcfr0LL2gzqRB6cSdPPbT4ne+dTH+xu+rS99MLxlN3+td5Heg3mWU0GYpVGXfX3G8gHbkhkpKcxBSun0CayDFH9H/RMIk9GhSRe2R632av4O8VztcnIPxvvppPHMK2KDGJhsssE6NCqtU2aRClcWk6uInw3/+Z/+t3HufS3vDg2URug4QbOCgWMTDR1IhYIvQjD9sZtVROARE+DjEeIQEqYWbwx1dNFAjRuER0LqDpWWjk9/5naKhc8A8EwhKhLTpGB/bVHFoI431vSP61tWetScHF131wZKx0fNZRhLhGiydPVj/G1t5RvpsbSBRRH02Ctjkdx7t+wjCxBkb3QAHvy+C9/Jp08Q3VRx8kiEEy0haxorW7bBtImlx2SDUp33d+FxN5TrjWruHOfhAvpN1WEMR0qRrxt/vOuTJDtjYn8Hd/MFnTa6LRERI2jTw2cb6D3OSef+3ZCU1+o9nP2wgHxEfAv0LUEsDBBQAAAAIAM2ge11B37ZR1AAAAMsBAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbJzRQU7DMBAF0H1PYXmLEgcWCKEkXRRuwAUsZ5JY2DMjz6Ryb1+1ZYVEQez//2/x+33NyRyhSCQc7GPbWQMYaIq4DHbTuXmx+3HXf5wYxNScUAa7qvKrcxJWyF5aYsCa00wle5WWyuLYh0+/gHvqumcXCBVQG71s2HFnTP8Gs9+SmveqgDe6QBJrDrfshRusZ04xeI2E7ojTN6j5QtoC6ZqRNbI81JyscT8pLHkK/D8nUIGGCzEUjfCbNKV0h6GgoHfauAlD+NNA767njGcAAAD//wMAUEsDBBQAAAAIAM2ge113X+uoawEAAGcCAAA2AAAAcGFja2FnZS9zZXJ2aWNlcy9tZXRhZGF0YS9jb3JlLXByb3BlcnRpZXMvbnVnZXQucHNtZGNwbJJdT8IwFIbv+RXNrqHdnBCC20hE44ViSCTG29IeoKEfS3vm4NY/6F8yG3MQ41173uc9Hz3N5kejySf4oJzNo4TGEQErnFR2l0cVbkfTaF4MMuE8rLwrwaOCQI5G2zCTIo/2iOWMsbLymjq/Y1Iw0GDAYmAJTVjUswjehH8NrdKTx6B6qq5rWqctdxPHCftYvryJPRg+UjYgtwI6V+8IrRyoK8Eejd46bziGNkPJxYHvoMk0YQaQS46cNZONyn60qBgQkkkxEx44Ol8snCm5PdGFs+i5wIxdiR0rIQivSlTOFqtzFfJwiWWN5ZrpbEqCRbVVcKny/dXCV0rDdvspEhrTOGO/10Y6wKl2XoYiY/2xiWsecOlkk0Pen4rX6gmQnntTdjck793Kp01KGg/JotJYecgtVOi5HpJVtdFKPMNp7Q5g8zTZbNPpeMJlOrmFdHxHXx/XJGkb+lNskLWvevkvxQ8AAAD//wMAUEsBAhQDFAAAAAgAzaB7Xf6uJSsIAQAA2QEAAAsAAAAAAAAAAAAAAKSBAAAAAF9yZWxzLy5yZWxzUEsBAhQDFAAACAgAzaB7XU0QHdYCAQAAmgEAABEAAAAAAAAAAAAAAKSBMQEAAENvbXBhbnkuz4IubnVzcGVjUEsBAhQDFAAAAAgAzKB7XbHV9RPuBQAAABAAACAAAAAAAAAAAAAAAKSBYgIAAGxpYi9uZXQxMS4wL0NvbXBhbnkuQ29udHJhY3QuZGxsUEsBAhQDFAAAAAgAzaB7XUHftlHUAAAAywEAABMAAAAAAAAAAAAAAKSBjggAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAACADNoHtdd1/rqGsBAABnAgAANgAAAAAAAAAAAAAApIGTCQAAcGFja2FnZS9zZXJ2aWNlcy9tZXRhZGF0YS9jb3JlLXByb3BlcnRpZXMvbnVnZXQucHNtZGNwUEsFBgAAAAAFAAUAawEAAFILAAAAAA=="
+          EXPECTED_TRUSTED = "418e12aa70858ad1347c4a13b0bcea84615ee41f0cb56d9468bf0bbb0ee87ce4"
+          EXPECTED_LOWER = "b6c1e9749b87bea2ed55ebae5d8da74e13987e57e00ab051a6d84835e3d0c51c"
+          RUNS_ROOT = Path(os.environ.get("C4_RUNS_ROOT", Path(__file__).resolve().parent))
+          DOTNET = shutil.which("dotnet") or "dotnet"
+
+
+          def sha(path):
+              return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+          def write_config(path, trusted, lower):
+              path.write_text(
+                  '<?xml version="1.0" encoding="utf-8"?><configuration><packageSources><clear/>'
+                  f'<add key="trusted" value="{trusted}"/><add key="lower" value="{lower}"/>'
+                  '</packageSources><packageSourceMapping>'
+                  '<packageSource key="trusted"><package pattern="Company.Σ"/></packageSource>'
+                  '<packageSource key="lower"><package pattern="*"/></packageSource>'
+                  '</packageSourceMapping></configuration>\n', encoding="utf-8")
+
+
+          def main():
+              stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+              root = RUNS_ROOT / f"api-compat-{stamp}-{uuid.uuid4().hex[:6]}"
+              root.mkdir(parents=True)
+              (root / "global.json").write_text(
+                  '{"sdk":{"version":"11.0.100","rollForward":"disable"}}\n', encoding="utf-8")
+              probe = root / "path-probe"
+              probe.mkdir()
+              (probe / "company.σ").write_text("sigma", encoding="utf-8")
+              alias = (probe / "company.ς").exists() and os.path.samefile(
+                  probe / "company.σ", probe / "company.ς")
+              (probe / "company.ς").write_text("final-sigma", encoding="utf-8")
+              feeds = root / "feeds"
+              trusted = feeds / "trusted"
+              lower = feeds / "lower"
+              empty = feeds / "empty"
+              for p in (trusted, lower, empty):
+                  p.mkdir(parents=True)
+              tp = trusted / "Company.Σ.1.0.0.nupkg"
+              lp = lower / "Company.ς.1.0.0.nupkg"
+              tp.write_bytes(base64.b64decode(TRUSTED_B64))
+              lp.write_bytes(base64.b64decode(LOWER_B64))
+              assert sha(tp) == EXPECTED_TRUSTED
+              assert sha(lp) == EXPECTED_LOWER
+              cfg = root / "NuGet.Config"
+              denied = root / "Denied.NuGet.Config"
+              write_config(cfg, trusted, lower)
+              write_config(denied, empty, lower)
+              logs = root / "logs"
+              logs.mkdir()
+              envbase = {**os.environ, "DOTNET_CLI_HOME": str(root / "cli-home"),
+                         "DOTNET_CLI_TELEMETRY_OPTOUT": "1",
+                         "DOTNET_SKIP_FIRST_TIME_EXPERIENCE": "1",
+                         "MSBUILDDISABLENODEREUSE": "1",
+                         "DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER": "1",
+                         "NUGET_HTTP_CACHE_PATH": str(root / "http-cache")}
+
+              def invoke(name, args, cache):
+                  command = [DOTNET, *args]
+                  env = {**envbase, "NUGET_PACKAGES": str(cache)}
+                  proc = subprocess.run(command, cwd=root, env=env, text=True,
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        timeout=240)
+                  log = logs / f"{name}.txt"
+                  log.write_text("COMMAND=" + " ".join(command) + "\nEXIT=" +
+                                 str(proc.returncode) + "\n" + proc.stdout, encoding="utf-8")
+                  return {"exit": proc.returncode, "log": str(log.relative_to(root)),
+                          "sha256": sha(log), "cp0002": "CP0002" in proc.stdout,
+                          "nu5052": "NU5052" in proc.stdout}
+
+              def make_victim(name, valid=False):
+                  path = root / name
+                  path.mkdir()
+                  (path / "project.csproj").write_text(
+                      '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>'
+                      '<TargetFramework>net11.0</TargetFramework>'
+                      '<AssemblyName>Company.Contract</AssemblyName>'
+                      '<PackageId>Company.Core</PackageId><Version>2.0.0</Version>'
+                      '<EnablePackageValidation>true</EnablePackageValidation>'
+                      '<PackageValidationBaselineVersion>1.0.0</PackageValidationBaselineVersion>'
+                      '<PackageValidationBaselineName>Company.Σ</PackageValidationBaselineName>'
+                      '<RunApiCompat>true</RunApiCompat>'
+                      '</PropertyGroup></Project>\n', encoding="utf-8")
+                  api = " public static void Approved() {}" if valid else ""
+                  (path / "Contract.cs").write_text(
+                      "namespace Company; public static class Contract "
+                      "{ public static void Relaxed() {}" + api + " }\n", encoding="utf-8")
+                  return path
+
+              rows = {}
+
+              def victim_case(name, cache, source_config=cfg, valid=False):
+                  project = make_victim(name, valid)
+                  row = {"project_sha256": sha(project / "project.csproj"),
+                         "source_sha256": sha(project / "Contract.cs")}
+                  row["restore"] = invoke(name + "-restore", ["restore",
+                      str(project / "project.csproj"), "--configfile",
+                      str(source_config), "-v", "normal"], cache)
+                  if row["restore"]["exit"] == 0:
+                      row["assets_sha256"] = sha(project / "obj/project.assets.json")
+                      row["pack"] = invoke(name + "-pack", ["pack",
+                          str(project / "project.csproj"), "--no-restore", "-c", "Release",
+                          "-p:UseSharedCompilation=false", "-m:1", "-v", "normal"], cache)
+                      package = project / "bin/Release/Company.Core.2.0.0.nupkg"
+                      row["output_package_sha256"] = sha(package) if package.exists() else None
+                  rows[name] = row
+
+              def seed(name, cache):
+                  project = root / name
+                  project.mkdir()
+                  (project / "project.csproj").write_text(
+                      '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>'
+                      '<TargetFramework>net11.0</TargetFramework></PropertyGroup>'
+                      '<ItemGroup><PackageReference Include="Company.ς" Version="1.0.0" />'
+                      '</ItemGroup></Project>\n', encoding="utf-8")
+                  rows[name] = {"project_sha256": sha(project / "project.csproj"),
+                                "restore": invoke(name + "-restore", ["restore",
+                                str(project / "project.csproj"), "--configfile",
+                                str(cfg), "-v", "normal"], cache), "build_invoked": False}
+
+              caches = {name: root / ("cache-" + name) for name in
+                        ("valid", "clean", "denied", "shared", "isolated", "reverse")}
+              for p in caches.values():
+                  p.mkdir()
+              victim_case("valid-compatible", caches["valid"], valid=True)
+              victim_case("breaking-clean", caches["clean"])
+              victim_case("breaking-denied", caches["denied"], denied)
+              seed("variant-seed", caches["shared"])
+              victim_case("breaking-seeded", caches["shared"])
+              victim_case("breaking-isolated", caches["isolated"])
+              victim_case("breaking-reverse-first", caches["reverse"])
+              seed("reverse-seed", caches["reverse"])
+              victim_case("breaking-reverse-after", caches["reverse"])
+              for row in rows.values():
+                  if "pack" in row:
+                      row["pack_exit"] = row["pack"]["exit"]
+              cache_entries = {name: [{"relative_path": str(p.relative_to(cache)),
+                                       "sha256": sha(p)} for p in cache.rglob("*.nupkg")]
+                               for name, cache in caches.items()}
+              sdk_info = subprocess.check_output([DOTNET, "--info"], cwd=root,
+                                                 env=envbase, text=True)
+              sdk_base = Path(next(line.split(":", 1)[1].strip()
+                                   for line in sdk_info.splitlines()
+                                   if line.strip().startswith("Base Path:")))
+              result = {"utc": stamp, "root": str(root), "platform": platform.platform(),
+                        "github_context": {key: os.environ.get(key) for key in
+                                           ("GITHUB_REPOSITORY", "GITHUB_SHA", "GITHUB_RUN_ID",
+                                            "GITHUB_JOB", "RUNNER_OS", "RUNNER_NAME")},
+                        "sdk": subprocess.check_output([DOTNET, "--version"], cwd=root,
+                                                       env=envbase, text=True).strip(),
+                        "sdk_base": str(sdk_base),
+                        "nuget_dll_sha256": {name: sha(sdk_base / name) for name in
+                              ("NuGet.Commands.dll", "NuGet.Packaging.dll",
+                               "NuGet.Configuration.dll", "NuGet.Protocol.dll")},
+                        "path_probe": {"sigma_final_sigma_alias": alias,
+                                       "sigma_read": (probe / "company.σ").read_text(encoding="utf-8"),
+                                       "final_sigma_read": (probe / "company.ς").read_text(encoding="utf-8")},
+                        "package_sha256": {"trusted": sha(tp), "lower": sha(lp)},
+                        "config_sha256": {"normal": sha(cfg), "denied": sha(denied)},
+                        "cache_entries": cache_entries, "cases": rows}
+              path = root / "result.json"
+              path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+              summary = {k: {"restore": r["restore"]["exit"],
+                             "pack": r.get("pack_exit"),
+                             "cp0002": r.get("pack", {}).get("cp0002")}
+                         for k, r in rows.items()}
+              print(json.dumps({"result": str(path), "sha256": sha(path),
+                                "summary": summary}, ensure_ascii=False, indent=2))
+              checks = [rows["valid-compatible"]["pack_exit"] == 0,
+                        rows["breaking-clean"]["pack"]["cp0002"],
+                        rows["breaking-denied"]["restore"]["exit"] != 0,
+                        rows["variant-seed"]["restore"]["exit"] == 0,
+                        rows["breaking-isolated"]["pack"]["cp0002"],
+                        rows["breaking-reverse-first"]["pack"]["cp0002"],
+                        rows["breaking-reverse-after"]["pack"]["cp0002"]]
+              return 0 if all(checks) else 2
+
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          '@
+          Set-Content -Path $scriptPath -Value $py -Encoding utf8
+          python $scriptPath | Tee-Object -FilePath (Join-Path $env:C4_RUNS_ROOT 'stdout.txt')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Preserve inert SDK baseline logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c4-l050-windows-api-compat
+          path: ${{ runner.temp }}/c4-l050-api/**
+          if-no-files-found: warn
