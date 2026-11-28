@@ -1,0 +1,65 @@
+name: C4 L050 NTFS Unicode fold probe
+on:
+  push:
+    branches:
+      - c4-l050-windows-20261127
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Compare NuGet identity, mapping, and NTFS paths
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pairs = @(
+            @(0x0041,0x0061), # positive filesystem control
+            @(0x0041,0x0042), # negative filesystem control
+            @(0x0049,0x0131), @(0x0053,0x017F),
+            @(0x039C,0x00B5), @(0x0392,0x03D0),
+            @(0x0395,0x03F5), @(0x0398,0x03D1),
+            @(0x0399,0x1FBE), @(0x039A,0x03F0),
+            @(0x03A0,0x03D6), @(0x03A1,0x03F1),
+            @(0x03A3,0x03C2), @(0x03A6,0x03D5),
+            @(0x0412,0x1C80), @(0x0414,0x1C81),
+            @(0x041E,0x1C82), @(0x0421,0x1C83),
+            @(0x0422,0x1C84), @(0x0422,0x1C85),
+            @(0x042A,0x1C86), @(0x0462,0x1C87),
+            @(0xA64A,0x1C88), @(0x1E60,0x1E9B)
+          )
+          $rows = @()
+          for ($i = 0; $i -lt $pairs.Count; $i++) {
+            $a = [char]$pairs[$i][0]
+            $b = [char]$pairs[$i][1]
+            $folder = Join-Path $env:RUNNER_TEMP ('a16-fold-' + $i)
+            [IO.Directory]::CreateDirectory($folder) | Out-Null
+            $aPath = Join-Path $folder ('Company.' + $a + '.1.0.0.nupkg')
+            $bPath = Join-Path $folder ('Company.' + $b + '.1.0.0.nupkg')
+            [IO.File]::WriteAllText($aPath, 'A')
+            $aliasBeforeSecondWrite = [IO.File]::Exists($bPath)
+            [IO.File]::WriteAllText($bPath, 'B')
+            $secondWriteChangedFirst = ([IO.File]::ReadAllText($aPath) -eq 'B')
+            $rows += [pscustomobject]@{
+              a = ('U+{0:X4}' -f [int]$a)
+              b = ('U+{0:X4}' -f [int]$b)
+              ordinalIgnoreCaseEqual = [StringComparer]::OrdinalIgnoreCase.Equals([string]$a,[string]$b)
+              invariantLowerDifferent = ($a.ToString().ToLowerInvariant() -cne $b.ToString().ToLowerInvariant())
+              ntfsAliasBeforeSecondWrite = $aliasBeforeSecondWrite
+              ntfsSecondWriteChangedFirst = $secondWriteChangedFirst
+            }
+          }
+          $out = Join-Path $env:RUNNER_TEMP 'a16-fold-result.json'
+          $rows | ConvertTo-Json -Depth 4 | Set-Content -Path $out -Encoding utf8
+          Get-Content -Path $out
+          if (-not ($rows[0].ntfsAliasBeforeSecondWrite -and $rows[0].ntfsSecondWriteChangedFirst)) { throw 'positive filesystem control failed' }
+          if ($rows[1].ntfsAliasBeforeSecondWrite -or $rows[1].ntfsSecondWriteChangedFirst) { throw 'negative filesystem control failed' }
+      - name: Preserve fold probe
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c4-l050-ntfs-fold-probe
+          path: ${{ runner.temp }}/a16-fold-result.json
+          if-no-files-found: warn
