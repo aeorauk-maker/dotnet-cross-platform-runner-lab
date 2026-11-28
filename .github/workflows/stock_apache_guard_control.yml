@@ -1,0 +1,226 @@
+name: Stock rTorrent Apache Basic control
+
+on:
+  push:
+    branches: [pa30-r38-stock-rpc-20261128]
+
+permissions:
+  contents: read
+
+jobs:
+  stock-rpc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Build pinned stock rTorrent
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends autoconf automake libtool pkg-config build-essential libcurl4-openssl-dev libncurses-dev libxmlrpc-core-c3-dev zlib1g-dev libssl-dev tmux apache2 apache2-utils
+          cd "$RUNNER_TEMP"
+          curl -fLsS -o libtorrent.tar.gz https://github.com/rakshasa/rtorrent/releases/download/v0.16.29/libtorrent-0.16.29.tar.gz
+          curl -fLsS -o rtorrent.tar.gz https://github.com/rakshasa/rtorrent/releases/download/v0.16.29/rtorrent-0.16.29.tar.gz
+          sha256sum libtorrent.tar.gz rtorrent.tar.gz
+          tar -xzf libtorrent.tar.gz
+          tar -xzf rtorrent.tar.gz
+          export RT_PREFIX="$RUNNER_TEMP/rtorrent-stock"
+          export PKG_CONFIG_PATH="$RT_PREFIX/lib/pkgconfig:$RT_PREFIX/lib64/pkgconfig"
+          export LD_LIBRARY_PATH="$RT_PREFIX/lib:$RT_PREFIX/lib64"
+          cd "$RUNNER_TEMP/libtorrent-0.16.29"
+          if [ ! -x configure ]; then autoreconf -ivf; fi
+          ./configure --prefix="$RT_PREFIX" > "$RUNNER_TEMP/libtorrent-configure.log" 2>&1 || { tail -n 60 "$RUNNER_TEMP/libtorrent-configure.log"; exit 1; }
+          make -j2 > "$RUNNER_TEMP/libtorrent-build.log" 2>&1 || { tail -n 60 "$RUNNER_TEMP/libtorrent-build.log"; exit 1; }
+          make install > "$RUNNER_TEMP/libtorrent-install.log" 2>&1
+          cd "$RUNNER_TEMP/rtorrent-0.16.29"
+          if [ ! -x configure ]; then autoreconf -ivf; fi
+          ./configure --prefix="$RT_PREFIX" --with-xmlrpc-c > "$RUNNER_TEMP/rtorrent-configure.log" 2>&1 || { tail -n 60 "$RUNNER_TEMP/rtorrent-configure.log"; exit 1; }
+          make -j2 > "$RUNNER_TEMP/rtorrent-build.log" 2>&1 || { tail -n 60 "$RUNNER_TEMP/rtorrent-build.log"; exit 1; }
+          make install > "$RUNNER_TEMP/rtorrent-install.log" 2>&1
+          sha256sum "$RT_PREFIX/bin/rtorrent"
+          echo "RT_PREFIX=$RT_PREFIX" >> "$GITHUB_ENV"
+
+      - name: Exercise inert stock SCGI controls
+        shell: bash
+        env:
+          TERM: xterm
+        run: |
+          set -euo pipefail
+          export LD_LIBRARY_PATH="$RT_PREFIX/lib:$RT_PREFIX/lib64"
+          tmux new-session -d -s stockrpc "$RT_PREFIX/bin/rtorrent -n -o network.scgi.open_port=127.0.0.1:45000"
+          trap 'tmux kill-session -t stockrpc 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          import json
+          import secrets
+          import socket
+          import time
+          import xmlrpc.client
+
+          HOST, PORT = "127.0.0.1", 45000
+          for attempt in range(60):
+              try:
+                  with socket.create_connection((HOST, PORT), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(1)
+          else:
+              raise RuntimeError("stock rTorrent SCGI socket did not open")
+
+          def rpc(method, args=(), untrusted=False):
+              body = xmlrpc.client.dumps(args, methodname=method, allow_none=True).encode()
+              headers = [
+                  ("CONTENT_LENGTH", str(len(body))), ("SCGI", "1"),
+                  ("REQUEST_METHOD", "POST"), ("REQUEST_URI", "/RPC2"),
+                  ("CONTENT_TYPE", "text/xml"), ("SERVER_PROTOCOL", "HTTP/1.1"),
+              ]
+              if untrusted:
+                  headers.append(("UNTRUSTED_CONNECTION", "1"))
+              block = b"".join(k.encode() + b"\0" + v.encode() + b"\0" for k, v in headers)
+              message = str(len(block)).encode() + b":" + block + b"," + body
+              with socket.create_connection((HOST, PORT), timeout=10) as connection:
+                  connection.sendall(message)
+                  response = b""
+                  while chunk := connection.recv(65536):
+                      response += chunk
+              if b"\r\n\r\n" in response:
+                  payload = response.split(b"\r\n\r\n", 1)[1]
+              else:
+                  payload = response.split(b"\n\n", 1)[1]
+              return xmlrpc.client.loads(payload)[0][0]
+
+          version = rpc("system.client_version")
+          before = rpc("throttle.global_down.max_rate", ("",))
+          assert before == 0, before
+          try:
+              rpc("throttle.global_down.max_rate.set_kb", ("", 64))
+              after = rpc("throttle.global_down.max_rate", ("",))
+              assert after == 64 * 1024, after
+          finally:
+              rpc("throttle.global_down.max_rate.set_kb", ("", 0))
+          restored = rpc("throttle.global_down.max_rate", ("",))
+          assert restored == before, restored
+          nonce = "stock-rpc-" + secrets.token_hex(8)
+          normal_output = rpc("execute.capture", ("", "/bin/echo", nonce))
+          normal_witness = normal_output.strip() == nonce
+          assert normal_witness
+          try:
+              untrusted_output = rpc("execute.capture", ("", "/bin/echo", nonce), untrusted=True)
+              untrusted = {"blocked": False, "sameOutput": untrusted_output.strip() == nonce}
+          except xmlrpc.client.Fault as error:
+              untrusted = {"blocked": True, "faultCode": error.faultCode}
+          result = {
+              "release": "v0.16.29", "reportedVersion": version,
+              "beforeBytesPerSec": before, "afterBytesPerSec": after,
+              "restoredBytesPerSec": restored, "inertCommandWitness": normal_witness,
+              "untrustedCommand": untrusted,
+          }
+          with open("stock-rpc-result.json", "w") as output:
+              json.dump(result, output, indent=2, sort_keys=True)
+              output.write("\n")
+          print(json.dumps(result, sort_keys=True))
+          PY
+
+      - name: Exercise Apache Basic guard over stock SCGI
+        shell: bash
+        env:
+          TERM: xterm
+        run: |
+          set -euo pipefail
+          export LD_LIBRARY_PATH="$RT_PREFIX/lib:$RT_PREFIX/lib64"
+          tmux new-session -d -s stockguard "$RT_PREFIX/bin/rtorrent -n -o network.scgi.open_port=127.0.0.1:45000"
+          htpasswd -bc "$RUNNER_TEMP/stock-auth" labuser labpass > /dev/null
+          cat > "$RUNNER_TEMP/stock-apache.conf" <<EOF
+          ServerRoot "$RUNNER_TEMP"
+          ServerName localhost
+          DocumentRoot "$RUNNER_TEMP"
+          Listen 127.0.0.1:45001
+          PidFile "$RUNNER_TEMP/stock-apache.pid"
+          ErrorLog "$RUNNER_TEMP/stock-apache-error.log"
+          Mutex file:$RUNNER_TEMP default
+          LoadModule mpm_event_module /usr/lib/apache2/modules/mod_mpm_event.so
+          LoadModule authn_core_module /usr/lib/apache2/modules/mod_authn_core.so
+          LoadModule authn_file_module /usr/lib/apache2/modules/mod_authn_file.so
+          LoadModule auth_basic_module /usr/lib/apache2/modules/mod_auth_basic.so
+          LoadModule authz_core_module /usr/lib/apache2/modules/mod_authz_core.so
+          LoadModule authz_user_module /usr/lib/apache2/modules/mod_authz_user.so
+          LoadModule proxy_module /usr/lib/apache2/modules/mod_proxy.so
+          LoadModule proxy_scgi_module /usr/lib/apache2/modules/mod_proxy_scgi.so
+          ProxyRequests Off
+          ProxyPass /RPC2 scgi://127.0.0.1:45000/
+          <LocationMatch "^/RPC2">
+            AuthType Basic
+            AuthName "stock-admin"
+            AuthUserFile "$RUNNER_TEMP/stock-auth"
+            Require valid-user
+          </LocationMatch>
+          EOF
+          apache2 -f "$RUNNER_TEMP/stock-apache.conf" -t
+          apache2 -f "$RUNNER_TEMP/stock-apache.conf" -X > "$RUNNER_TEMP/apache.out" 2>&1 &
+          apid=$!
+          trap 'kill "$apid" 2>/dev/null || true; tmux kill-session -t stockguard 2>/dev/null || true' EXIT
+          python3 - <<'PY'
+          import base64
+          import json
+          import secrets
+          import socket
+          import time
+          import xmlrpc.client
+
+          for port in (45000, 45001):
+              for attempt in range(60):
+                  try:
+                      with socket.create_connection(("127.0.0.1", port), timeout=1):
+                          break
+                  except OSError:
+                      time.sleep(1)
+              else:
+                  raise RuntimeError(f"required service on port {port} did not open")
+
+          url = "http://127.0.0.1:45001/RPC2"
+          def client(auth=None):
+              headers = [("Authorization", auth)] if auth else []
+              return xmlrpc.client.ServerProxy(url, headers=headers, allow_none=True)
+          def basic(user, password):
+              raw = f"{user}:{password}".encode()
+              return "Basic " + base64.b64encode(raw).decode()
+          for auth in (None, basic("wrong", "wrong")):
+              try:
+                  client(auth).system.client_version()
+              except xmlrpc.client.ProtocolError as error:
+                  assert error.errcode in (401, 403), error.errcode
+              else:
+                  raise AssertionError("Apache admitted denied request")
+          allowed = client(basic("labuser", "labpass"))
+          version = allowed.system.client_version()
+          assert version == "0.16.29", version
+          before = allowed.throttle.global_down.max_rate("")
+          assert before == 0, before
+          try:
+              allowed.throttle.global_down.max_rate.set_kb("", 64)
+              after = allowed.throttle.global_down.max_rate("")
+              assert after == 65536, after
+          finally:
+              allowed.throttle.global_down.max_rate.set_kb("", 0)
+          restored = allowed.throttle.global_down.max_rate("")
+          assert restored == 0, restored
+          nonce = "stock-guard-" + secrets.token_hex(8)
+          output = allowed.execute.capture("", "/bin/echo", nonce)
+          assert output.strip() == nonce
+          result = {"release": version, "absentDenied": True, "wrongDenied": True,
+                    "throttleBefore": before, "throttleAfter": after, "throttleRestored": restored,
+                    "inertCommandWitness": True, "apacheGuard": "Basic", "scgiProxy": True}
+          with open("stock-apache-result.json", "w") as target:
+              json.dump(result, target, indent=2, sort_keys=True)
+              target.write("\n")
+          print(json.dumps(result, sort_keys=True))
+          PY
+
+      - name: Save sanitized control result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-apache-control
+          path: |
+            stock-rpc-result.json
+            stock-apache-result.json
+          if-no-files-found: ignore
