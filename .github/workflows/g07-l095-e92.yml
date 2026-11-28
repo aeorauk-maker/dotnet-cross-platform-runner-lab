@@ -30,10 +30,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sealed="$RUNNER_TEMP/g07-sealed-payload-v4.cms"
+          sealed="$RUNNER_TEMP/g07-sealed-payload-v5.cms"
           found=0
           for i in $(seq 1 180); do
-            if curl -fsSL --max-time 15 "https://raw.githubusercontent.com/aeorauk-maker/dotnet-cross-platform-runner-lab/g07-l095-pa30-e83-20261128-c73f/g07-sealed-payload-v4.cms?poll=$i" -o "$sealed" 2>/dev/null; then
+            if curl -fsSL --max-time 15 "https://raw.githubusercontent.com/aeorauk-maker/dotnet-cross-platform-runner-lab/g07-l095-pa30-e83-20261128-c73f/g07-sealed-payload-v5.cms?poll=$i" -o "$sealed" 2>/dev/null; then
               found=1
               break
             fi
